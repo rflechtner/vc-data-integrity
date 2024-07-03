@@ -2446,19 +2446,24 @@ as `DataIntegrityProof`, are used.
           </p>
 
           <p>
-If an `@context` property is not provided in a document that is being secured or
-verified, or the Data Integrity terms used in the document are not mapped by
-existing values in the `@context` property, implementations MUST inject or add
-an `@context` property with a value of
-`https://w3id.org/security/data-integrity/v2`.
+Implementations MUST assert that Data Integrity terms used in the document and/or
+proof are being mapped by values in the `@context` property of the document. To this
+end, implementations MUST enforce that a `@context` property is present on the
+document, and that it contains a value of `https://w3id.org/security/data-integrity/v2`
+or another context known to map all Data Integrity terms defined in the above context
+in an equivalent manner. For example, the presence of the Verifiable Credential
+Data Model v2.0 context (`https://www.w3.org/ns/credentials/v2`) as a value in
+the `@context` property can be sufficient on a document, as that context maps
+all of the necessary Data Integrity terms that were previously mapped by
+`https://w3id.org/security/data-integrity/v2`. 
           </p>
 
           <p>
-Context injection is expected to be unnecessary sometimes, such as when the Verifiable
-Credential Data Model v2.0 context (`https://www.w3.org/ns/credentials/v2`)
-exists as a value in the `@context` property, as that context maps all of the
-necessary Data Integrity terms that were previously mapped by
-`https://w3id.org/security/data-integrity/v2`.
+The presence of required contexts is enforced by performing context injection
+during proof generation, where the Data Integrity context is added to the
+document's `@context` property if necessary, and context validation during proof
+verification, where an error is raised if the document contains no adequate context.
+These procedures are defined further in [[[#add-proof]]] and [[[#verify-proof]]].
           </p>
         </section>
 
@@ -3133,12 +3138,39 @@ The following algorithm specifies how a digital proof can be added to an
 [=unsecured data document=], and can then be used to verify the output
 document's authenticity and integrity. Required inputs are an <a>unsecured data
 document</a> ([=map=] |unsecuredDocument|), a [=cryptosuite instance=]
-([=struct=] |cryptosuite|), and a set of options ([=map=] |options|). Output is
-a [=secured data document=] ([=map=]) or an error. Whenever this algorithm
-encodes strings, it MUST use UTF-8 encoding.
+([=struct=] |cryptosuite|), a set of options ([=map=] |options|), and an
+optional set of sufficient contexts (|sufficients|) that map all Data Integrity
+terms. Output is a [=secured data document=] ([=map=]) or an error. Whenever
+this algorithm encodes strings, it MUST use UTF-8 encoding.
         </p>
 
         <ol class="algorithm">
+          <li>
+Let |securedDataDocument| be a copy of |unsecuredDocument|.
+          </li>
+          <li>
+Perform [=context injection=] on |securedDataDocument| with the following steps:
+          <ol class="algorithm">
+            <li>
+  Let |contexts| be an empty list.
+            </li>
+            <li>
+  Initialize |sufficients| to an empty list if not given and add
+  `https://w3id.org/security/data-integrity/v2` to the set if not already
+  present.
+            </li>
+            <li>
+  If a `@context` value of |securedDataDocument| is present and is a string, add this value to |contexts|.
+  If it is a list, add all items in the list to |contexts|.  
+            </li>
+            <li>
+  If none of the items in |sufficients| are present in |contexts|, add
+  `https://w3id.org/security/data-integrity/v2` to |contexts|, then set the
+  `@context` value of |securedDataDocument| to |contexts|. If one or more items
+  in |sufficients| are already present in |contexts|, leave `@contexts` untouched.
+            </li>
+          </ol>
+          </li>
           <li>
 Let |proof| be the result of calling the [=cryptosuite instance/createProof=]
 algorithm specified in |cryptosuite|.|createProof| with |unsecuredDocument|
@@ -3161,9 +3193,6 @@ If |options| has a non-null |challenge| [=struct/item=], it MUST be equal to
 |proof|.|challenge| or an error MUST be raised and SHOULD
 convey an error type of
 <a href="#PROOF_GENERATION_ERROR">PROOF_GENERATION_ERROR</a>.
-          </li>
-          <li>
-Let |securedDataDocument| be a copy of |unsecuredDocument|.
           </li>
           <li>
 Set |securedDataDocument|.|proof| to the value of |proof|.
@@ -3227,7 +3256,8 @@ in a later step of this algorithm.
           <li>
 Run steps 1 through 6 of the algorithm in section [[[#add-proof]]], passing
 |unsecuredDocument|, |suite|, and |options|. If no exceptions are raised, append
-the generated |proof| value to the |allProofs|; otherwise, raise the exception.
+the generated |proof| value to the |allProofs| and set |output| to the
+|securedDataDocument| returned by [[[#add-proof]]]; otherwise, raise the exception.
           </li>
           <li>
 Set |output|.|proof| to the value of |allProofs|.
@@ -3275,6 +3305,10 @@ not being used across different security domains
           <dd>
 An optional [=string=] [=challenge=], used by the verifier to ensure that an
 attacker is not replaying previously created proofs
+          </dd>
+          <dt>|sufficients|</dt>
+          <dd>
+An optional [=set=] of sufficient contexts that map all Data Integrity terms
           </dd>
         </dl>
 
@@ -3350,6 +3384,20 @@ If |challenge| was given, and it does not match
 |proof|.|challenge|, an error MUST be raised and SHOULD
 convey an error type of
 <a href="#INVALID_CHALLENGE_ERROR">INVALID_CHALLENGE_ERROR</a>.
+          </li>
+          <li>
+Perform [=context verification=] on |securedDocument| with the following steps:
+          <ol class="algorithm">
+            <li>
+  Execute steps 1-3 of the [=context injection=] algorithm described in
+  [[[#add-proof]]], using the inputs |securedDocument| and |sufficients|.
+            </li>
+            <li>
+  If none of the items in |sufficients| are present in |contexts|, an error
+  MUST be raised and SHOULD convey an error type of
+  <a href="#PROOF_VERIFICATION_ERROR">PROOF_VERIFICATION_ERROR</a>
+            </li>
+          </ol>
           </li>
           <li>
 Let |cryptosuiteVerificationResult| be the result of running the
